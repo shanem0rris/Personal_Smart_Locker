@@ -2,6 +2,7 @@
 #define NUM_ROWS 4
 #define NUM_COLS 3
 
+/*
 //Keypad layout
 const char KEYS[NUM_ROWS][NUM_COLS] = {
   {'1','2','3'},
@@ -13,7 +14,7 @@ const char KEYS[NUM_ROWS][NUM_COLS] = {
 //Keypad Pin mapping
 const uint8_t rowPins[NUM_ROWS] = {8, 2, 3, 4};
 const uint8_t colPins[NUM_COLS] = {5, 6, 7};
-
+*/
 //EEPROM layout - 0xAA indicates that password is set and the next 4 bytes read in should be the password
 const int ADDR_FLAG = 0;
 const int ADDR_PASSWORD = 1;
@@ -23,21 +24,31 @@ const int PASS_LENGTH = 4;
 char entered[PASS_LENGTH + 1];
 char stored[PASS_LENGTH + 1];
 
+bool password = false;
+
+//analog setup
+const int analogPin = A0;
+
 //main
 void setup(){
   Serial.begin(9600);
   while (!Serial){ ; }
 
+/*
   //configures row pins to output and idle high
-  for(int r = 0; r < NUM_ROWS; ++r) {
+  for(int r = 0; r < NUM_ROWS; ++r){
     pinMode(rowPins[r], OUTPUT);
     digitalWrite(rowPins[r], HIGH);
   }
 
   //configures column pins to be Inputs w/ Pullup Resistor
-  for(int c = 0; c < NUM_COLS; ++c) {
+  for(int c = 0; c < NUM_COLS; ++c){
     pinMode(colPins[c], INPUT_PULLUP);
   }
+*/
+  //setup servo pin
+  pinMode(9, OUTPUT);
+
   Serial.println();
   Serial.println("---Keypad Password System---");
 
@@ -50,11 +61,15 @@ void setup(){
     Serial.print("Initial password saved: ");
     Serial.println(mask(entered));
     Serial.println("System is now locked.");
+    password = false;
+    setServoAngle(-90);  // lock servo initially
     delay(500);
   } else {
     //read stored password
     readPasswordFromEEPROM(stored);
     Serial.println("Password loaded from memory.");
+    password = false;
+    setServoAngle(-90);  // lock servo initially
   }
 }
 
@@ -62,13 +77,18 @@ void loop() {
   Serial.println();
   Serial.println("Locked. Please enter 4-digit password:");
   readPasswordFromKeypad(entered);
+
   //read password in from keypad and check against stored value
   //if correct -> unlock, if incorrect -> stay locked
   if(comparePasswords(entered, stored)){
     Serial.println("Correct! System unlocked.");
+    password = true;
+    setServoAngle(90);   // unlock servo
     unlockedMenu();
   } else {
     Serial.println("Incorrect password.");
+    password = false;
+    setServoAngle(-90);  // keep locked
     //delay to prevent spam
     delay(500);
   }
@@ -76,14 +96,16 @@ void loop() {
 
 //HELPER FUNCTIONS
 
+/*
 char getKey(){
   // For each row: drive it LOW, others HIGH, then sample columns
   for(int r = 0; r < NUM_ROWS; ++r){
     // set all rows HIGH (idle)
-    for(int i = 0; i < NUM_ROWS; ++i)digitalWrite(rowPins[i], HIGH);
+    for(int i = 0; i < NUM_ROWS; ++i) digitalWrite(rowPins[i], HIGH);
     // drive current row LOW
     digitalWrite(rowPins[r], LOW);
     delay(3); // small settle time
+
 
     for(int c = 0; c < NUM_COLS; ++c) {
       if(digitalRead(colPins[c]) == LOW) { // active LOW when key pressed
@@ -103,22 +125,54 @@ char getKey(){
   return 0;
 }
 
+*/
+char getKeyAnalog(){
+  delay(250);
+  int sensorValue = analogRead(analogPin);
+  if(sensorValue > 800){
+    return '1';
+  } else if(sensorValue > 750){
+    return '2';
+  } else if(sensorValue > 700){
+    return '3';
+  } else if(sensorValue > 670){
+    return '4';
+  } else if(sensorValue > 630){
+    return '5';
+  } else if(sensorValue > 580){
+    return '6';
+  } else if(sensorValue > 540){
+    return '7';
+  } else if(sensorValue > 515){
+    return '8';
+  } else if(sensorValue > 480){
+    return '9';
+  } else if(sensorValue > 455){
+    return '*';
+  } else if(sensorValue > 435){
+    return '0';
+  } else if(sensorValue > 421){
+      return '#';
+  }
+  return 0;
+}
+
 void readPasswordFromKeypad(char *buf) {
   int idx = 0;
   //set the buffer address to receive memory
   memset(buf, 0, PASS_LENGTH + 1);
 
   while(idx < PASS_LENGTH){
-    char k = getKey();
-    //read in a key press, and only fill the memory if its a number 
+    char k = getKeyAnalog();
+    //read in a key press, and only fill the memory if its a number
     if(k){
       if(k >= '0' && k <= '9') {
         buf[idx++] = k;
-        Serial.print('*');
+        Serial.print(k);
         //show messages for ignored keys
-      } else {
-        if(k == '*') Serial.print(" [* pressed - change password after unlock] ");
-        if(k == '#') Serial.print(" [# pressed - ignored here] ");
+      } else{
+        if(k == '*') Serial.print("*");
+        if(k == '#') Serial.print("#");
       }
     }
     //prevent spam
@@ -182,7 +236,7 @@ void unlockedMenu(){
 
   char opt = 0;
   while((millis() - start) < waitMs && opt == 0){
-    char k = getKey();
+    char k = getKeyAnalog();
     if (k){
       if(k == '*') opt = '*';
       else if(k == '#') opt = '#';
@@ -196,8 +250,13 @@ void unlockedMenu(){
     writePasswordToEEPROM(entered);
     Serial.print("New password saved: ");
     Serial.println(mask(entered));
+    Serial.println("System relocking after password change.");
+    password = false;
+    setServoAngle(-90);  // relock servo automatically
   } else {
     Serial.println("Locking system again.");
+    password = false;
+    setServoAngle(-90);  // relock servo
   }
 }
 
@@ -206,4 +265,17 @@ String mask(const char *p){
   String s = "";
   for (int i = 0; i < PASS_LENGTH; ++i) s += '*';
   return s;
+}
+
+void setServoAngle(int servoAngle)
+{
+  int pwm;
+  pwm = map(servoAngle, 0, 180, 1000, 2000);
+  for (int i = 0; i < 50; i++)
+  {
+    PORTB |= (1 << 1); // replacement for digitalWrite(servoPin, HIGH);
+    delayMicroseconds(pwm);
+    PORTB &= ~(1 << 1); // replacement for digitalWrite(servoPin, LOW);
+    delayMicroseconds(20000 - pwm);
+  }
 }
