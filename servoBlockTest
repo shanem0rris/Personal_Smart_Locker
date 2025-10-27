@@ -1,6 +1,6 @@
 int sensorPin = A0;      
 int sensorValue = 0;
-int threshold = 120;     
+int threshold = 100;     
 int pos = 90;            
 int step = 2;            
 
@@ -19,7 +19,7 @@ void writeServo(int angle) {
 void loop() {
   sensorValue = analogRead(sensorPin);
   Serial.print("Sensor Value: ");
-  Serial.println(sensorValue);
+  Serial.println(sensorPin);
 
   if (sensorValue > threshold) step = -step;
   pos += step;
@@ -27,5 +27,5 @@ void loop() {
   if (pos <= 0) { pos = 0; step = 2; }
 
   writeServo(pos);
-  delay(8);
+  delay(4);
 }
