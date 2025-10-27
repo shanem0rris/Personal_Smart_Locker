@@ -1,29 +1,31 @@
-const int analogPin = A0;
+int sensorPin = A0;      
+int sensorValue = 0;
+int threshold = 120;     
+int pos = 90;            
+int step = 2;            
 
-void setup()
-{
-  pinMode(9, OUTPUT);
+void setup() {
   Serial.begin(9600);
+  pinMode(9, OUTPUT);
 }
 
-void setServoAngle(int servoAngle)
-{
-  int pwm;
-  pwm = map(servoAngle, 0, 180, 1000, 2000);
-  for (int i = 0; i < 50; i++)
-  {
-    PORTB |= (1 << 1); // replacement for digitalWrite(servoPin, HIGH);
-    delayMicroseconds(pwm);
-    PORTB &= ~(1 << 1); // replacement for digitalWrite(servoPin, LOW);
-    delayMicroseconds(20000 - pwm);
-  }
+void writeServo(int angle) {
+  int pulseWidth = map(angle, 0, 180, 544, 2400);
+  digitalWrite(9, HIGH);
+  delayMicroseconds(pulseWidth);
+  digitalWrite(9, LOW);
 }
 
-void loop()
-{
-  Serial.print(analogRead(analogPin));
-  char c = Serial.read();
-  if(c == '1'){
-    setServoAngle(90);
-  } else setServoAngle(-90);
+void loop() {
+  sensorValue = analogRead(sensorPin);
+  Serial.print("Sensor Value: ");
+  Serial.println(sensorValue);
+
+  if (sensorValue > threshold) step = -step;
+  pos += step;
+  if (pos >= 180) { pos = 180; step = -2; }
+  if (pos <= 0) { pos = 0; step = 2; }
+
+  writeServo(pos);
+  delay(8);
 }
