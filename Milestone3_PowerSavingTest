@@ -1,0 +1,352 @@
+/* PCINT-on-A0 wake — complete include-free sketch
+   Wakes from Power-down on any change at A0 (PC0 / PCINT8).
+   No #includes, no avr headers — direct register addresses used.
+*/
+
+/* ---------- Config constants ---------- */
+const int ADDR_FLAG      = 0;
+const unsigned int ADDR_PASSWORD = 1;
+const unsigned int INIT_FLAG     = 0xAA;
+const int PASS_LENGTH    = 4;
+
+const unsigned long INACTIVITY_MS = 60000UL; // 60 s before sleeping
+
+/* ---------- State ---------- */
+char entered[PASS_LENGTH + 1];
+char stored[PASS_LENGTH + 1];
+
+bool password = false;         // true when unlocked
+bool changingPassword = false; // true while reading password
+volatile unsigned long lastActivityMs = 0UL;
+
+/* ---------- "include-free" register aliases (ATmega328P addresses) ---------- */
+#define DDRB    (*(volatile unsigned char *)0x24)
+#define PORTB   (*(volatile unsigned char *)0x25)
+#define DDRD    (*(volatile unsigned char *)0x2A)
+#define PORTD   (*(volatile unsigned char *)0x2B)
+
+#define SMCR    (*(volatile unsigned char *)0x53)  /* Sleep Mode Control Register */
+
+/* Pin Change control registers and mask for PCINT1 (PC[7:0] group) */
+#define PCICR   (*(volatile unsigned char *)0x68)  /* Pin Change Interrupt Control Reg */
+#define PCMSK1  (*(volatile unsigned char *)0x6C)  /* Pin Change Mask Register 1 (PCINT14..8 -> PC[6:0]) */
+#define PCIFR   (*(volatile unsigned char *)0x3B)  /* Pin Change Interrupt Flag Register (mem addr) */
+
+/* PCICR bits */
+#define PCIE1   (1u << 1)  /* enable PCINT[14:8] group */
+
+/* PCIFR bits */
+#define PCIF1   (1u << 1)  /* flag for PCINT[14:8] */
+
+/* PCMSK1 bits */
+#define PCINT8  (1u << 0)  /* PC0 -> PCINT8 */
+
+/* SMCR bits */
+#define SMCR_SM2  (1u << 3)
+#define SMCR_SM1  (1u << 2)
+#define SMCR_SM0  (1u << 1)
+#define SMCR_SE   (1u << 0)
+
+/* PB5 indicator LED bit */
+#define PB5_bm (1u << 5)
+
+/* PD2 (if still used elsewhere) */
+#define PD2_bm (1u << 2)
+
+/* ---------- Forward declarations (your helpers) ---------- */
+char getKeyAnalog();
+void readPasswordFromKeypad(char *buf);
+void writePasswordToEEPROM(const char *p);
+void readPasswordFromEEPROM(char *outBuf);
+bool isPasswordSet();
+void writeFlag();
+bool comparePasswords(const char *a, const char *b);
+void unlockedMenu();
+String mask(const char *p);
+void setServoAngle(int servoAngle);
+void EEPROM_write(unsigned int uiAddress, unsigned char ucData);
+unsigned char EEPROM_read(unsigned int uiAddress);
+
+/* ---------- tiny wake-flag set by ISR (volatile) ---------- */
+volatile unsigned char pcint_woke = 0;
+
+/* ---------- ISR for PCINT1 group (PCINT[14:8], which includes PCINT8/PC0/A0)
+   Vector mapping: for ATmega328P PCINT1 group is interrupt vector #5 -> __vector_5.
+   Use 'signal' attribute so compiler emits RETI. Keep ISR tiny (no millis()).
+*/
+void __vector_5(void) __attribute__ ((signal, used, externally_visible));
+void __vector_5(void)
+{
+  pcint_woke = 1;           // mark that we woke due to pin-change
+  PORTB ^= PB5_bm;          // toggle indicator LED quickly (visual wake)
+  /* RETI is generated automatically because of 'signal' attribute */
+}
+
+/* ---------- Enable PCINT on A0 (PC0 / PCINT8) ---------- */
+void setupPCINTonA0() {
+  PCMSK1 |= PCINT8;    // enable PCINT8 (PC0)
+  PCIFR  |= PCIF1;     // clear any pending flag by writing 1
+  PCICR  |= PCIE1;     // enable PCINT group 1 (PC[14:8])
+}
+
+/* ---------- Sleep helpers (no library) ---------- */
+void enterPowerDownSleep() {
+  // Make sure PCINT for A0 is enabled (so it can wake)
+  setupPCINTonA0();
+
+  // clear any pending PCINT1 flag
+  PCIFR |= PCIF1;
+
+  // Select Power-down: SM2:SM1:SM0 = 0b010 (SM1=1)
+  SMCR &= ~(SMCR_SM2 | SMCR_SM0);
+  SMCR |=  (SMCR_SM1);
+
+  // enable interrupts globally so PCINT can wake (SEI)
+  __asm__ __volatile__ ("sei" ::: "memory");
+
+  // set sleep enable and execute SLEEP
+  SMCR |= SMCR_SE;
+  __asm__ __volatile__ ("sleep" ::: "memory");
+
+  // resumed here after wake
+  SMCR &= ~SMCR_SE;
+
+  // clear any PCINT1 flag
+  PCIFR |= PCIF1;
+}
+
+/* ---------- Try to sleep if conditions satisfied ---------- */
+void trySleepIfIdle() {
+  if (password) return;         // unlocked -> do not sleep
+  if (changingPassword) return; // while changing password -> do not sleep
+
+  unsigned long now = millis();
+  if ((now - lastActivityMs) >= INACTIVITY_MS) {
+    pcint_woke = 0;            // clear wake flag
+    enterPowerDownSleep();     // sleep; MCU wakes on PCINT on A0
+    // now after wake:
+    // prefer to set lastActivityMs in main (not inside ISR) to avoid calling millis() in ISR
+    if (pcint_woke) {
+      pcint_woke = 0;
+    }
+    lastActivityMs = millis(); // update last activity timestamp after wake
+    delay(20);                 // small settle
+  }
+}
+
+/* ---------- keypad reading updates lastActivity ---------- */
+char getKeyAnalog() {
+  int sensorValue = analogRead(A0);
+  if (sensorValue < 400) return 0;
+
+  char key = 0;
+  if (sensorValue > 800) key = '1';
+  else if (sensorValue > 750) key = '2';
+  else if (sensorValue > 700) key = '3';
+  else if (sensorValue > 670) key = '4';
+  else if (sensorValue > 630) key = '5';
+  else if (sensorValue > 580) key = '6';
+  else if (sensorValue > 540) key = '7';
+  else if (sensorValue > 515) key = '8';
+  else if (sensorValue > 480) key = '9';
+  else if (sensorValue > 455) key = '*';
+  else if (sensorValue > 435) key = '0';
+  else if (sensorValue > 421) key = '#';
+
+  if (key != 0) {
+    lastActivityMs = millis(); // mark activity for inactivity timer
+    delay(30);
+    while (analogRead(A0) > 400) {
+      delay(10);
+    }
+  }
+  return key;
+}
+
+/* ---------- readPasswordFromKeypad: mark changingPassword ---------- */
+void readPasswordFromKeypad(char *buf) {
+  int idx = 0;
+  memset(buf, 0, PASS_LENGTH + 1);
+
+  changingPassword = true;
+  while (idx < PASS_LENGTH) {
+    char k = getKeyAnalog();
+    if (k) {
+      if (k >= '0' && k <= '9') {
+        buf[idx++] = k;
+        Serial.print('*');
+      } else {
+        if (k == '*') Serial.print("*");
+        if (k == '#') Serial.print("#");
+      }
+    }
+    delay(10);
+  }
+  Serial.println();
+  buf[PASS_LENGTH] = '\0';
+  changingPassword = false;
+  lastActivityMs = millis();
+}
+
+/* ---------- Setup & loop (main) ---------- */
+void setup() {
+  Serial.begin(9600);
+  while (!Serial) { ; }
+
+  // PB5 indicator output (onboard LED)
+  DDRB |= PB5_bm;
+  PORTB &= ~PB5_bm;
+
+  // ensure A0 is input with pullup disabled (we read it with ADC)
+  // (no DDRC definitions here; analogRead handles ADC mux)
+
+  // initialize activity timer
+  lastActivityMs = millis();
+
+  Serial.println();
+  Serial.println("---Keypad Password System (PCINT-on-A0 wake)---");
+
+  // configure PCINT on A0
+  setupPCINTonA0();
+
+  // Load or initialize password
+  if (!isPasswordSet()) {
+    Serial.println("No saved password found. Enter initial 4-digit password:");
+    readPasswordFromKeypad(entered);
+    writePasswordToEEPROM(entered);
+    Serial.print("Initial password saved: ");
+    Serial.println(mask(entered));
+    Serial.println("System is now locked.");
+    password = false;
+    setServoAngle(-90);
+    delay(500);
+  } else {
+    readPasswordFromEEPROM(stored);
+    Serial.println("Password loaded from memory.");
+    password = false;
+    setServoAngle(-90);
+  }
+}
+
+void loop() {
+  Serial.println();
+  Serial.println("Locked. Please enter 4-digit password:");
+
+  readPasswordFromKeypad(entered);
+
+  if (comparePasswords(entered, stored)) {
+    Serial.println("Correct! System unlocked.");
+    password = true;
+    setServoAngle(90);
+    unlockedMenu(); // unlockedMenu handles relock or change
+  } else {
+    Serial.println("Incorrect password.");
+    password = false;
+    setServoAngle(-90);
+    delay(500);
+  }
+
+  trySleepIfIdle();
+}
+
+/* ---------- EEPROM & helpers (same semantics as yours) ---------- */
+
+bool isPasswordSet(){
+  return (EEPROM_read(ADDR_FLAG) == INIT_FLAG);
+}
+
+void writeFlag(){
+  EEPROM_write(ADDR_FLAG, INIT_FLAG);
+}
+
+void writePasswordToEEPROM(const char *p){
+  for(int i = 0; i < PASS_LENGTH; ++i){
+    EEPROM_write(ADDR_PASSWORD + i, (unsigned char)p[i]);
+    stored[i] = p[i];
+  }
+  stored[PASS_LENGTH] = '\0';
+  writeFlag();
+}
+
+void readPasswordFromEEPROM(char *outBuf){
+  for(int i = 0; i < PASS_LENGTH; ++i){
+    char v = (char)EEPROM_read(ADDR_PASSWORD + i);
+    if(v < '0' || v > '9') v = '0';
+    outBuf[i] = v;
+  }
+  outBuf[PASS_LENGTH] = '\0';
+  for(int i = 0; i <= PASS_LENGTH; ++i) stored[i] = outBuf[i];
+}
+
+bool comparePasswords(const char *a, const char *b){
+  for(int i = 0; i < PASS_LENGTH; ++i){
+    if(a[i] != b[i]) return false;
+  }
+  return true;
+}
+
+void unlockedMenu(){
+  Serial.println("Options: Press '*' to change password, or '#' to lock again.");
+  unsigned long start = millis();
+  const unsigned long waitMs = 15000UL;
+
+  char opt = 0;
+  while((millis() - start) < waitMs && opt == 0){
+    char k = getKeyAnalog();
+    if (k){
+      if(k == '*') opt = '*';
+      else if(k == '#') opt = '#';
+    }
+    delay(10);
+  }
+
+  if(opt == '*'){
+    Serial.println("Enter new 4-digit password:");
+    readPasswordFromKeypad(entered);
+    writePasswordToEEPROM(entered);
+    Serial.print("New password saved: ");
+    Serial.println(mask(entered));
+    Serial.println("System relocking after password change.");
+    password = false;
+    setServoAngle(-90);
+  } else {
+    Serial.println("Locking system again.");
+    password = false;
+    setServoAngle(-90);
+  }
+}
+
+String mask(const char *p){
+  (void)p;
+  String s = "";
+  for (int i = 0; i < PASS_LENGTH; ++i) s += '*';
+  return s;
+}
+
+void setServoAngle(int servoAngle)
+{
+  int pwm;
+  pwm = map(servoAngle, 0, 180, 1000, 2000);
+  for (int i = 0; i < 50; i++)
+  {
+    PORTB |= (1 << 1); // D9 high
+    delayMicroseconds(pwm);
+    PORTB &= ~(1 << 1);
+    delayMicroseconds(20000 - pwm);
+  }
+}
+
+void EEPROM_write(unsigned int uiAddress, unsigned char ucData) {
+  while (EECR & (1 << EEPE));
+  EEAR = uiAddress;
+  EEDR = ucData;
+  EECR |= (1 << EEMPE);
+  EECR |= (1 << EEPE);
+}
+
+unsigned char EEPROM_read(unsigned int uiAddress) {
+  while (EECR & (1 << EEPE));
+  EEAR = uiAddress;
+  EECR |= (1 << EERE);
+  return EEDR;
+}
