@@ -1,0 +1,60 @@
+int buzzerPin = 8;
+int delayTime = 100;
+
+void setup() {
+  pinMode(buzzerPin, OUTPUT);
+}
+void loop() {
+  buzzerButtonPressed();
+  buzzerButtonPressed();
+  buzzerButtonPressed();
+  buzzerButtonPressed();
+  buzzerPasswordCorrect();
+
+  buzzerButtonPressed();
+  buzzerButtonPressed();
+  buzzerButtonPressed();
+  buzzerButtonPressed();
+  buzzerPasswordIncorrect();
+}
+
+void buzzerButtonPressed() {
+  tone(buzzerPin, 440);
+  delay(delayTime);
+  noTone(buzzerPin);
+  delay(1000);
+}
+
+void buzzerPasswordCorrect() {
+  tone(buzzerPin, 392);
+  delay(delayTime);
+  noTone(buzzerPin);
+  delay(delayTime);
+  tone(buzzerPin, 329);
+  delay(delayTime);
+  noTone(buzzerPin);
+  delay(delayTime);  
+  tone(buzzerPin, 261);
+  delay(delayTime);
+  noTone(buzzerPin);
+  delay(delayTime); 
+  tone(buzzerPin, 523);
+  delay(delayTime);
+  noTone(buzzerPin);
+  delay(1000);
+}
+
+void buzzerPasswordIncorrect() {
+  tone(buzzerPin, 392);
+  delay(delayTime);
+  noTone(buzzerPin);
+  delay(delayTime);
+  tone(buzzerPin, 349);
+  delay(delayTime);
+  noTone(buzzerPin);
+  delay(delayTime);  
+  tone(buzzerPin, 231);
+  delay(delayTime);
+  noTone(buzzerPin);
+  delay(1000);
+}
