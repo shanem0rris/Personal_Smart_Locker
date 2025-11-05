@@ -30,7 +30,7 @@ void setup(){
     //reads and saves password
     readPasswordFromKeypad(entered);
     writePasswordToEEPROM(entered);
-    readPasswordFromKeypad(entered);
+    readPasswordFromKeypad(stored);
     Serial.print("Initial password saved: ");
     Serial.println(mask(entered));
     Serial.println("System is now locked.");
@@ -265,7 +265,7 @@ void unlockedMenu(){
     Serial.println("Enter new 4-digit password:");
     readPasswordFromKeypad(entered);
     writePasswordToEEPROM(entered);
-    readPasswordFromKeypad(entered);
+    readPasswordFromKeypad(stored);
     Serial.print("New password saved: ");
     Serial.println(mask(entered));
     Serial.println("System relocking after password change.");
