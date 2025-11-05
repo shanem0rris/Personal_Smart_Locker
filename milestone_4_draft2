@@ -13,53 +13,39 @@ const int sensorPin = A1;
 const int currentThreshold = 120;
 //main
 void setup(){
-  Serial.begin(9600);
-  while (!Serial){ ; }
 
   //setup buzzer pin
   pinMode(buzzerPin, OUTPUT);
   //setup servo pin
   pinMode(9, OUTPUT);
 
-  Serial.println();
-  Serial.println("---Keypad Password System---");
-
   //if password has never been set, set one for the first time and save it to memory
   if(!isPasswordSet()){
-    Serial.println("No saved password found. Enter initial 4-digit password:");
     //reads and saves password
     readPasswordFromKeypad(entered);
     writePasswordToEEPROM(entered);
     readPasswordFromKeypad(stored);
-    Serial.print("Initial password saved: ");
-    Serial.println(mask(entered));
-    Serial.println("System is now locked.");
     password = false;
     setServoAngle2(-90);  // lock servo initially
     delay(500);
   } else {
     //read stored password
     readPasswordFromEEPROM(stored);
-    Serial.println("Password loaded from memory.");
     password = false;
     setServoAngle2(-90);  // lock servo initially
   }
 }
 
 void loop() {
-  Serial.println();
-  Serial.println("Locked. Please enter 4-digit password:");
   readPasswordFromKeypad(entered);
 
   //read password in from keypad and check against stored value
   //if correct -> unlock, if incorrect -> stay locked
   if(comparePasswords(entered, stored)){
-    Serial.println("Correct! System unlocked.");
     password = true;
     setServoAngle2(90);   // unlock servo
     unlockedMenu();
   } else {
-    Serial.println("Incorrect password.");
     password = false;
     buzzerPasswordIncorrect();
     setServoAngle2(-90);  // keep locked
@@ -121,17 +107,12 @@ void readPasswordFromKeypad(char *buf) {
     if(k){
       if(k >= '0' && k <= '9') {
         buf[idx++] = k;
-        Serial.print('*');
         //show messages for ignored keys
-      } else{
-        if(k == '*') Serial.print("*");
-        if(k == '#') Serial.print("#");
       }
     }
     //prevent spam
     delay(10);
   }
-  Serial.println();
   //null terminate
   buf[PASS_LENGTH] = '\0';
 }
@@ -247,7 +228,6 @@ bool comparePasswords(const char *a, const char *b){
 //provide options to change password or relock system
 void unlockedMenu(){
   buzzerPasswordCorrect();
-  Serial.println("Options: Press '*' to change password, or '#' to lock again.");
   unsigned long start = millis();
   const unsigned long waitMs = 15000UL;
 
@@ -262,17 +242,12 @@ void unlockedMenu(){
   }
   //enter change or lock mode depending on input
   if(opt == '*'){
-    Serial.println("Enter new 4-digit password:");
     readPasswordFromKeypad(entered);
     writePasswordToEEPROM(entered);
     readPasswordFromKeypad(stored);
-    Serial.print("New password saved: ");
-    Serial.println(mask(entered));
-    Serial.println("System relocking after password change.");
     password = false;
     setServoAngle2(-90);  // relock servo automatically
   } else {
-    Serial.println("Locking system again.");
     password = false;
     setServoAngle2(-90);  // relock servo
   }
