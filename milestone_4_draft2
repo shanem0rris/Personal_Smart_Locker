@@ -358,42 +358,18 @@ void setServoAngle2(int targetAngle) {
 }
 
 void buzzerButtonPressed() {
-  tone(buzzerPin, 440);
-  delay(200);
-  noTone(buzzerPin);
-  delay(100);
+  tone(buzzerPin, 440); delay(200); noTone(buzzerPin); delay(100);
 }
 
 void buzzerPasswordCorrect() {
-  tone(buzzerPin, 392);
-  delay(200);
-  noTone(buzzerPin);
-  delay(100);
-  tone(buzzerPin, 329);
-  delay(150);
-  noTone(buzzerPin);
-  delay(50);  
-  tone(buzzerPin, 261);
-  delay(150);
-  noTone(buzzerPin);
-  delay(50); 
-  tone(buzzerPin, 523);
-  delay(150);
-  noTone(buzzerPin);
-  delay(50);
+  tone(buzzerPin, 392); delay(200); noTone(buzzerPin); delay(100);
+  tone(buzzerPin, 329); delay(150); noTone(buzzerPin); delay(50);  
+  tone(buzzerPin, 261); delay(150); noTone(buzzerPin); delay(50); 
+  tone(buzzerPin, 523); delay(150); noTone(buzzerPin); delay(50);
 }
 
 void buzzerPasswordIncorrect() {
-  tone(buzzerPin, 392);
-  delay(200);
-  noTone(buzzerPin);
-  delay(100);
-  tone(buzzerPin, 349);
-  delay(150);
-  noTone(buzzerPin);
-  delay(50);  
-  tone(buzzerPin, 231);
-  delay(150);
-  noTone(buzzerPin);
-  delay(50);
+  tone(buzzerPin, 392); delay(200); noTone(buzzerPin); delay(100);
+  tone(buzzerPin, 349); delay(150); noTone(buzzerPin); delay(50);  
+  tone(buzzerPin, 231); delay(150); noTone(buzzerPin); delay(50);
 }
