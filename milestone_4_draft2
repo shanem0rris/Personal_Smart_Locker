@@ -24,7 +24,7 @@ void setup(){
     //reads and saves password
     readPasswordFromKeypad(entered);
     writePasswordToEEPROM(entered);
-    readPasswordFromKeypad(stored);
+    readPasswordFromEEPROM(stored);
     password = false;
     setServoAngle2(-90);  // lock servo initially
     delay(500);
@@ -244,7 +244,7 @@ void unlockedMenu(){
   if(opt == '*'){
     readPasswordFromKeypad(entered);
     writePasswordToEEPROM(entered);
-    readPasswordFromKeypad(stored);
+    readPasswordFromEEPROM(stored);
     password = false;
     setServoAngle2(-90);  // relock servo automatically
   } else {
