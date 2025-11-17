@@ -118,29 +118,30 @@ char getKeyAnalog() {
   return key;
 }
 
-//reads 4 keys in from the keypad and stores in buffer
+//reads password from keypad and stores into buf
 void readPasswordFromKeypad(char *buf) {
   int idx = 0;
-  //set the buffer address to receive memory
   memset(buf, 0, PASS_LENGTH + 1);
 
-  while(idx < PASS_LENGTH){
-    char k = getKeyAnalog();
-    //read in a key press, and only fill the memory if its a number
-    if(k){
-      if(k >= '0' && k <= '9') {
-        buf[idx++] = k;
+  while (idx < PASS_LENGTH) {
+    if (!password && (millis() - lastActivityMs >= IDLE_TIMEOUT_MS)) {
+      powerdown_until_key();
+      lastActivityMs = millis();
+    }
 
-        //reset idle timer on keypress
+    char k = getKeyAnalog();
+    if (k) {
+      if (k >= '0' && k <= '9') {
+        buf[idx++] = k;
         lastActivityMs = millis();
       }
     }
-    //prevent spam
     delay(10);
   }
-  //null terminate
+
   buf[PASS_LENGTH] = '\0';
 }
+
 
 //    --EEPROM Helpers--
 
@@ -248,6 +249,7 @@ void unlockedMenu(){
     password = false;
     setServoAngle2(-90);  // relock servo automatically
   } else {
+    readPasswordFromEEPROM(stored);
     password = false;
     setServoAngle2(-90);  // relock servo
   }
